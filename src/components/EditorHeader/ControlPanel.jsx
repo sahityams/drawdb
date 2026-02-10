@@ -1303,8 +1303,14 @@ export default function ControlPanel({
           setUndoStack([]);
           setRedoStack([]);
 
+          if (import.meta.env.VITE_LOCAL_BRIDGE === "true") {
+            await fetch("/api/bridge/clear", { method: "POST" }).catch(
+              () => {},
+            );
+            return;
+          }
+
           if (!diagramId) {
-            Toast.error(t("oops_smth_went_wrong"));
             return;
           }
 
@@ -1566,6 +1572,11 @@ export default function ControlPanel({
           message: t("are_you_sure_flush_storage"),
         },
         function: async () => {
+          if (import.meta.env.VITE_LOCAL_BRIDGE === "true") {
+            await fetch("/api/bridge/clear", { method: "POST" }).catch(
+              () => {},
+            );
+          }
           localStorage.removeItem(STORAGE_KEY);
           db.delete()
             .then(() => {

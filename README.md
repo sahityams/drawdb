@@ -82,22 +82,50 @@ The local bridge lets external tools update the diagram by writing to a single J
 
 ### MCP Server
 
-The bundled MCP server (`mcp-server.mjs`) gives Claude Code structured tools to read and modify your diagram from **any project directory** — no need to be inside the DrawDB repo.
+The bundled MCP server (`mcp-server.mjs`) gives Claude structured tools to read and modify your diagram from **any project directory** — no need to be inside the DrawDB repo. It works with both Claude Code (CLI) and Claude Desktop.
 
-**Setup:**
+**Prerequisites:**
 
 ```bash
-# Install dependencies (one-time)
 cd drawdb && npm install
+```
 
-# Register the server globally with Claude Code
+#### Claude Code (CLI)
+
+Run this once from any terminal:
+
+```bash
 # Replace <drawdb-dir> with the full path to your drawdb clone
 #   Linux/macOS:  /home/user/projects/drawdb
 #   Windows:      C:\Users\user\projects\drawdb
 claude mcp add -s user drawdb -- node <drawdb-dir>/mcp-server.mjs
 ```
 
-Once registered, Claude Code can use the following tools across all sessions:
+This writes to `~/.claude/settings.json` and applies to all Claude Code sessions.
+
+#### Claude Desktop
+
+Add a `drawdb` entry to the `mcpServers` object in your config file:
+
+- **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
+
+```json
+{
+  "mcpServers": {
+    "drawdb": {
+      "command": "node",
+      "args": ["/<absolute-path-to-drawdb>/mcp-server.mjs"]
+    }
+  }
+}
+```
+
+Replace the path in `args` with the full path to `mcp-server.mjs` on your machine. Restart Claude Desktop after saving.
+
+#### Available Tools
+
+Once registered, Claude can use these tools across all sessions:
 
 | Tool | Description |
 |------|-------------|
