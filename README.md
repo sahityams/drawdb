@@ -1,17 +1,4 @@
 <div align="center">
-  <sup>Special thanks to:</sup>
-  <br>
-  <a href="https://www.warp.dev/drawdb/" target="_blank">
-    <img alt="Warp sponsorship" width="280" src="https://github.com/user-attachments/assets/c7f141e7-9751-407d-bb0e-d6f2c487b34f">
-    <br>
-    <b>Next-gen AI-powered intelligent terminal for all platforms</b>
-  </a>
-</div>
-
-<br/>
-<br/>
-
-<div align="center">
     <img width="64" alt="drawdb logo" src="./src/assets/icon-dark.png">
     <h1>drawDB</h1>
 </div>
@@ -64,4 +51,60 @@ docker build -t drawdb .
 docker run -p 3000:80 drawdb
 ```
 
-If you want to enable sharing, set up the [server](https://github.com/drawdb-io/drawdb-server) and environment variables according to `.env.sample`. This is optional unless you need to share files..
+If you want to enable sharing, set up the [server](https://github.com/drawdb-io/drawdb-server) and environment variables according to `.env.sample`. This is optional unless you need to share files.
+
+### Docker Build with Local Bridge
+
+To build with the Claude Code local bridge enabled:
+
+```bash
+docker build --build-arg VITE_LOCAL_BRIDGE=true -t drawdb .
+docker run -p 3000:80 -v ./diagram_state.json:/usr/share/nginx/html/diagram_state.json drawdb
+```
+
+Mount `diagram_state.json` as a volume so external tools (Claude Code, MCP) can write to it and the app picks up changes automatically.
+
+## Snowflake Database
+
+Added Snowflake support for DrawDB. Design schemas using all native Snowflake types — `VARIANT`, `OBJECT`, `ARRAY`, `TIMESTAMP_NTZ`, `GEOGRAPHY`, and more. Import existing Snowflake DDL or export your diagram as production-ready Snowflake SQL.
+
+## AI-Assisted Schema Design
+
+DrawDB can be driven programmatically by AI agents like [Claude Code](https://docs.anthropic.com/en/docs/claude-code). Describe a schema in natural language and watch it render in real time.
+
+### Local Bridge
+
+The local bridge lets external tools update the diagram by writing to a single JSON file. The editor polls for changes and renders them automatically.
+
+1. Add `VITE_LOCAL_BRIDGE=true` to your `.env` file
+2. Run `npm run dev`
+3. Write diagram JSON to `public/diagram_state.json` — the UI refreshes within 1.5 seconds
+
+### MCP Server
+
+The bundled MCP server (`mcp-server.mjs`) gives Claude Code structured tools to read and modify your diagram from **any project directory** — no need to be inside the DrawDB repo.
+
+**Setup:**
+
+```bash
+# Install dependencies (one-time)
+cd drawdb && npm install
+
+# Register the server globally with Claude Code
+# Replace <drawdb-dir> with the full path to your drawdb clone
+#   Linux/macOS:  /home/user/projects/drawdb
+#   Windows:      C:\Users\user\projects\drawdb
+claude mcp add -s user drawdb -- node <drawdb-dir>/mcp-server.mjs
+```
+
+Once registered, Claude Code can use the following tools across all sessions:
+
+| Tool | Description |
+|------|-------------|
+| `get_diagram` | Read the current diagram state |
+| `set_diagram` | Replace the entire diagram |
+| `add_table` | Add a single table with fields |
+| `add_relationship` | Create a foreign key between tables |
+| `remove_table` | Delete a table and its relationships |
+| `clear_diagram` | Reset the diagram to empty |
+| `list_types` | Show all supported data types |
