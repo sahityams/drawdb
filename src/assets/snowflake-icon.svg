@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <linearGradient id="sf" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#29B5E8"/>
+      <stop offset="100%" style="stop-color:#0D8ECF"/>
+    </linearGradient>
+  </defs>
+  <circle cx="32" cy="32" r="30" fill="url(#sf)"/>
+  <g stroke="white" stroke-width="3" stroke-linecap="round" fill="none">
+    <line x1="32" y1="12" x2="32" y2="52"/>
+    <line x1="14.7" y1="22" x2="49.3" y2="42"/>
+    <line x1="14.7" y1="42" x2="49.3" y2="22"/>
+    <line x1="32" y1="12" x2="26" y2="16"/>
+    <line x1="32" y1="12" x2="38" y2="16"/>
+    <line x1="32" y1="52" x2="26" y2="48"/>
+    <line x1="32" y1="52" x2="38" y2="48"/>
+    <line x1="14.7" y1="22" x2="14.7" y2="28"/>
+    <line x1="14.7" y1="22" x2="20.7" y2="22"/>
+    <line x1="49.3" y1="42" x2="49.3" y2="36"/>
+    <line x1="49.3" y1="42" x2="43.3" y2="42"/>
+    <line x1="14.7" y1="42" x2="14.7" y2="36"/>
+    <line x1="14.7" y1="42" x2="20.7" y2="42"/>
+    <line x1="49.3" y1="22" x2="49.3" y2="28"/>
+    <line x1="49.3" y1="22" x2="43.3" y2="22"/>
+  </g>
+</svg>

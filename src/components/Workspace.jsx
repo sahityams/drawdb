@@ -26,6 +26,7 @@ import { isRtl } from "../i18n/utils/rtl";
 import { useSearchParams } from "react-router-dom";
 import { get, SHARE_FILENAME } from "../api/gists";
 import { nanoid } from "nanoid";
+import { useLocalBridge } from "../hooks/useLocalBridge";
 
 export const IdContext = createContext({
   gistId: "",
@@ -67,6 +68,43 @@ export default function WorkSpace() {
   const { undoStack, redoStack, setUndoStack, setRedoStack } = useUndoRedo();
   const { t, i18n } = useTranslation();
   let [searchParams, setSearchParams] = useSearchParams();
+  const applyDiagram = useCallback(
+    (data) => {
+      if (data.database) setDatabase(data.database);
+      if (data.tables) setTables(data.tables);
+      if (data.references || data.relationships)
+        setRelationships(data.references || data.relationships);
+      if (data.notes) setNotes(data.notes);
+      if (data.areas || data.subjectAreas)
+        setAreas(data.areas || data.subjectAreas);
+      if (data.pan != null || data.zoom != null)
+        setTransform({
+          pan: data.pan || { x: 0, y: 0 },
+          zoom: data.zoom || 1,
+        });
+      if (data.types) setTypes(data.types);
+      if (data.enums) setEnums(data.enums);
+      setUndoStack([]);
+      setRedoStack([]);
+    },
+    [
+      setDatabase,
+      setTables,
+      setRelationships,
+      setNotes,
+      setAreas,
+      setTransform,
+      setTypes,
+      setEnums,
+      setUndoStack,
+      setRedoStack,
+    ],
+  );
+
+  const bridgeEnabled =
+    import.meta.env.VITE_LOCAL_BRIDGE === "true";
+  useLocalBridge({ applyDiagram, enabled: bridgeEnabled });
+
   const handleResize = (e) => {
     if (!resize) return;
     const w = isRtl(i18n.language) ? window.innerWidth - e.clientX : e.clientX;
@@ -450,6 +488,7 @@ export default function WorkSpace() {
   };
 
   useEffect(() => {
+    if (bridgeEnabled) return;
     if (
       tables?.length === 0 &&
       areas?.length === 0 &&
@@ -474,6 +513,7 @@ export default function WorkSpace() {
     title,
     gistId,
     setSaveState,
+    bridgeEnabled,
   ]);
 
   useEffect(() => {
@@ -487,8 +527,10 @@ export default function WorkSpace() {
   useEffect(() => {
     document.title = "Editor | drawDB";
 
-    load();
-  }, [load]);
+    if (!bridgeEnabled) {
+      load();
+    }
+  }, [load, bridgeEnabled]);
 
   return (
     <div className="h-full flex flex-col overflow-hidden theme">

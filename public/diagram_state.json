@@ -1,0 +1,83 @@
+{
+  "database": "snowflake",
+  "tables": [
+    {
+      "id": 0,
+      "name": "CUSTOMERS",
+      "x": 50,
+      "y": 80,
+      "comment": "Customer master data",
+      "color": "#175e7a",
+      "fields": [
+        { "id": 0, "name": "CUSTOMER_ID", "type": "NUMBER", "primary": true, "unique": false, "notNull": true, "increment": true, "default": "", "check": "", "comment": "", "size": "", "values": [] },
+        { "id": 1, "name": "FIRST_NAME", "type": "VARCHAR", "primary": false, "unique": false, "notNull": true, "increment": false, "default": "", "check": "", "comment": "", "size": "100", "values": [] },
+        { "id": 2, "name": "LAST_NAME", "type": "VARCHAR", "primary": false, "unique": false, "notNull": true, "increment": false, "default": "", "check": "", "comment": "", "size": "100", "values": [] },
+        { "id": 3, "name": "EMAIL", "type": "VARCHAR", "primary": false, "unique": true, "notNull": true, "increment": false, "default": "", "check": "", "comment": "", "size": "256", "values": [] },
+        { "id": 4, "name": "CREATED_AT", "type": "TIMESTAMP_NTZ", "primary": false, "unique": false, "notNull": false, "increment": false, "default": "CURRENT_TIMESTAMP()", "check": "", "comment": "", "size": "", "values": [] }
+      ],
+      "indices": []
+    },
+    {
+      "id": 1,
+      "name": "ORDERS",
+      "x": 400,
+      "y": 80,
+      "comment": "Customer orders",
+      "color": "#2a6e3f",
+      "fields": [
+        { "id": 0, "name": "ORDER_ID", "type": "NUMBER", "primary": true, "unique": false, "notNull": true, "increment": true, "default": "", "check": "", "comment": "", "size": "", "values": [] },
+        { "id": 1, "name": "CUSTOMER_ID", "type": "NUMBER", "primary": false, "unique": false, "notNull": true, "increment": false, "default": "", "check": "", "comment": "", "size": "", "values": [] },
+        { "id": 2, "name": "ORDER_DATE", "type": "DATE", "primary": false, "unique": false, "notNull": true, "increment": false, "default": "", "check": "", "comment": "", "size": "", "values": [] },
+        { "id": 3, "name": "TOTAL_AMOUNT", "type": "DECIMAL", "primary": false, "unique": false, "notNull": false, "increment": false, "default": "0", "check": "", "comment": "", "size": "12,2", "values": [] },
+        { "id": 4, "name": "STATUS", "type": "VARCHAR", "primary": false, "unique": false, "notNull": true, "increment": false, "default": "'pending'", "check": "", "comment": "", "size": "20", "values": [] }
+      ],
+      "indices": []
+    },
+    {
+      "id": 2,
+      "name": "ORDER_ITEMS",
+      "x": 750,
+      "y": 80,
+      "comment": "Line items per order",
+      "color": "#7a4a17",
+      "fields": [
+        { "id": 0, "name": "ITEM_ID", "type": "NUMBER", "primary": true, "unique": false, "notNull": true, "increment": true, "default": "", "check": "", "comment": "", "size": "", "values": [] },
+        { "id": 1, "name": "ORDER_ID", "type": "NUMBER", "primary": false, "unique": false, "notNull": true, "increment": false, "default": "", "check": "", "comment": "", "size": "", "values": [] },
+        { "id": 2, "name": "PRODUCT_NAME", "type": "STRING", "primary": false, "unique": false, "notNull": true, "increment": false, "default": "", "check": "", "comment": "", "size": "", "values": [] },
+        { "id": 3, "name": "QUANTITY", "type": "INTEGER", "primary": false, "unique": false, "notNull": true, "increment": false, "default": "1", "check": "", "comment": "", "size": "", "values": [] },
+        { "id": 4, "name": "UNIT_PRICE", "type": "DECIMAL", "primary": false, "unique": false, "notNull": true, "increment": false, "default": "", "check": "", "comment": "", "size": "10,2", "values": [] }
+      ],
+      "indices": []
+    }
+  ],
+  "relationships": [
+    {
+      "id": 0,
+      "name": "fk_orders_customer_id",
+      "startTableId": 1,
+      "startFieldId": 1,
+      "endTableId": 0,
+      "endFieldId": 0,
+      "cardinality": "many_to_one",
+      "updateConstraint": "No action",
+      "deleteConstraint": "No action"
+    },
+    {
+      "id": 1,
+      "name": "fk_order_items_order_id",
+      "startTableId": 2,
+      "startFieldId": 1,
+      "endTableId": 1,
+      "endFieldId": 0,
+      "cardinality": "many_to_one",
+      "updateConstraint": "No action",
+      "deleteConstraint": "Cascade"
+    }
+  ],
+  "notes": [],
+  "subjectAreas": [],
+  "types": [],
+  "enums": [],
+  "pan": { "x": 0, "y": 0 },
+  "zoom": 1.0
+}
