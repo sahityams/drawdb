@@ -12,8 +12,10 @@
     "vitest": "4.1.11"
   },
   "dependencies": {
+    "@modelcontextprotocol/node": "^2.0.0",
+    "@modelcontextprotocol/server": "^2.0.0",
     "nanoid": "^5.1.16",
     "node-sql-parser": "^5.4.0",
-    "zod": "^3.25.76"
+    "zod": "^4.4.3"
   }
 }
