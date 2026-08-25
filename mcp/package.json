@@ -16,6 +16,7 @@
     "@modelcontextprotocol/server": "^2.0.0",
     "nanoid": "^5.1.16",
     "node-sql-parser": "^5.4.0",
+    "snowflake-sdk": "^2.2.0",
     "zod": "^4.4.3"
   }
 }

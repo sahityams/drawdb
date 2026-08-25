@@ -1,10 +1,12 @@
 import { McpServer } from "@modelcontextprotocol/server";
 import { registerDocumentTools } from "./tools/document.mjs";
 import { registerFeatureTools } from "./tools/features.mjs";
+import { registerSnowflakeTools } from "./tools/snowflake.mjs";
 
 export function registerAllTools(server) {
   registerDocumentTools(server);
   registerFeatureTools(server);
+  registerSnowflakeTools(server);
 }
 
 export function buildServer() {
