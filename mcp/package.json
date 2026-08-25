@@ -12,6 +12,7 @@
     "vitest": "4.1.11"
   },
   "dependencies": {
+    "@dbml/core": "^3.13.9",
     "@modelcontextprotocol/node": "^2.0.0",
     "@modelcontextprotocol/server": "^2.0.0",
     "nanoid": "^5.1.16",
