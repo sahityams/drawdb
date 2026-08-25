@@ -111,6 +111,7 @@ export const DB = {
   SQLITE: "sqlite",
   MARIADB: "mariadb",
   ORACLESQL: "oraclesql",
+  SNOWFLAKE: "snowflake",
   GENERIC: "generic",
 };
 

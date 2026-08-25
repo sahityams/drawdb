@@ -4,6 +4,7 @@ import sqliteImage from "../assets/sqlite-icon.png";
 import mariadbImage from "../assets/mariadb-icon.png";
 import mssqlImage from "../assets/mssql-icon.png";
 import oraclesqlImage from "../assets/oraclesql-icon.png";
+import snowflakeImage from "../assets/snowflake-icon.svg";
 import i18n from "../i18n/i18n";
 import { DB } from "./constants";
 
@@ -51,6 +52,14 @@ export const databases = new Proxy(
       hasEnums: false,
       hasArrays: false,
       beta: true,
+    },
+    [DB.SNOWFLAKE]: {
+      name: "Snowflake",
+      label: DB.SNOWFLAKE,
+      image: snowflakeImage,
+      hasTypes: true,
+      hasEnums: false,
+      hasArrays: false,
     },
     [DB.GENERIC]: {
       name: i18n.t("generic"),
