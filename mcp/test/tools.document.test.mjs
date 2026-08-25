@@ -86,8 +86,8 @@ describe("document tools", () => {
 
     const { sql } = renderSql({ document, dialect: "snowflake" });
 
-    expect(sql).toContain('CREATE TABLE "users"');
-    expect(sql).toContain('CREATE TABLE "orders"');
+    expect(sql).toContain('CREATE TABLE IF NOT EXISTS "users"');
+    expect(sql).toContain('CREATE TABLE IF NOT EXISTS "orders"');
     expect(sql).toContain(
       'FOREIGN KEY("user_id") REFERENCES "users"("id")',
     );

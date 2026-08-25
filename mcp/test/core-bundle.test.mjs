@@ -123,7 +123,7 @@ describe("drawdb core bundle", () => {
       references: [],
     });
 
-    expect(sql).toContain('CREATE TABLE "users"');
+    expect(sql).toContain('CREATE TABLE IF NOT EXISTS "users"');
   });
 
   it("exports Mermaid with relationship cardinality from the bundled core", () => {

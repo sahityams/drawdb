@@ -1,11 +1,24 @@
 import { nanoid } from "nanoid";
 import { Cardinality, Constraint, DB } from "../../data/constants";
 import { dbToTypes } from "../../data/datatypes";
-import { buildSQLFromAST, findReferencedTable } from "./shared";
+import { findReferencedTable } from "./shared";
 
+// node-sql-parser's snowflake dialect emits column references as a plain
+// string (`column_ref.column`); older shapes nested it under `.expr.value`.
+// Accept both so the importer is resilient across parser versions.
+function columnName(ref) {
+  return ref?.column?.expr?.value ?? ref?.column;
+}
+
+// Normalize a few Snowflake type spellings onto the canonical dbToTypes keys.
 const affinity = {
   [DB.SNOWFLAKE]: new Proxy(
-    {},
+    {
+      FIXED: "NUMBER",
+      TEXT: "VARCHAR",
+      STRING: "VARCHAR",
+      "CHARACTER VARYING": "VARCHAR",
+    },
     { get: (target, prop) => (prop in target ? target[prop] : "VARCHAR") },
   ),
   [DB.GENERIC]: new Proxy(
@@ -14,354 +27,247 @@ const affinity = {
       "CHARACTER VARYING": "VARCHAR",
       "DOUBLE PRECISION": "DOUBLE",
     },
-    { get: (target, prop) => (prop in target ? target[prop] : "VARCHAR") },
+    { get: (target, prop) => (prop in target ? target[prop] : "BLOB") },
   ),
 };
 
-function columnName(columnRef) {
-  return columnRef?.column?.expr?.value ?? columnRef?.column;
+function resolveType(dataType, diagramDb) {
+  const upper = String(dataType ?? "").toUpperCase();
+  const map = affinity[diagramDb] ?? affinity[DB.GENERIC];
+  return dbToTypes[diagramDb]?.[upper]?.type ?? map[upper];
 }
 
-export function fromSnowflake(ast, diagramDb = DB.GENERIC) {
+function parseDefaultValue(defaultVal) {
+  const value = defaultVal?.value;
+  if (!value) return "";
+  switch (value.type) {
+    case "single_quote_string":
+    case "double_quote_string":
+      return value.value;
+    case "null":
+      return "NULL";
+    case "cast":
+      return value.expr?.value?.toString() ?? "";
+    case "function": {
+      let out = value.name?.name?.[0]?.value ?? "";
+      if (value.args) {
+        const args = (value.args.value ?? [])
+          .map((v) =>
+            v.type === "single_quote_string" || v.type === "double_quote_string"
+              ? `'${v.value}'`
+              : v.value,
+          )
+          .join(", ");
+        out += `(${args})`;
+      }
+      return out;
+    }
+    default:
+      return value.value?.toString() ?? "";
+  }
+}
+
+function fieldSize(definition) {
+  if (definition?.length === undefined || definition?.length === null) return "";
+  return definition.scale
+    ? `${definition.length},${definition.scale}`
+    : `${definition.length}`;
+}
+
+function makeRelationship(startTable, endTable, fieldPairs, onAction) {
+  let updateConstraint = Constraint.NONE;
+  let deleteConstraint = Constraint.NONE;
+  (onAction ?? []).forEach((c) => {
+    const v = c.value?.value;
+    if (!v) return;
+    const cap = v[0].toUpperCase() + v.substring(1);
+    if (c.type === "on update") updateConstraint = cap;
+    else if (c.type === "on delete") deleteConstraint = cap;
+  });
+
+  const startField = startTable.fields.find(
+    (f) => f.id === fieldPairs[0].startFieldId,
+  );
+
+  return {
+    id: nanoid(),
+    name: `fk_${startTable.name}_${startField?.name}_${endTable.name}`,
+    startTableId: startTable.id,
+    startFieldId: fieldPairs[0].startFieldId,
+    endTableId: endTable.id,
+    endFieldId: fieldPairs[0].endFieldId,
+    fields: fieldPairs,
+    updateConstraint,
+    deleteConstraint,
+    cardinality: startField?.unique
+      ? Cardinality.ONE_TO_ONE
+      : Cardinality.MANY_TO_ONE,
+  };
+}
+
+// Resolve start/end column-name pairs into field-id pairs; returns null if any
+// column can't be resolved (so the caller can skip an incomplete FK).
+function resolveFieldPairs(startTable, endTable, startNames, endNames) {
+  const pairs = [];
+  for (let i = 0; i < startNames.length; i++) {
+    const sf = startTable.fields.find((f) => f.name === startNames[i]);
+    const ef = endTable.fields.find((f) => f.name === endNames[i]);
+    if (!sf || !ef) return null;
+    pairs.push({ startFieldId: sf.id, endFieldId: ef.id });
+  }
+  return pairs.length === startNames.length ? pairs : null;
+}
+
+export function fromSnowflake(ast, diagramDb = DB.SNOWFLAKE) {
   const tables = [];
   const relationships = [];
+  // FKs whose referenced table may not be parsed yet are deferred.
+  const pendingReferences = [];
 
-  const parseSingleStatement = (e) => {
-    if (e.type === "create") {
-      if (e.keyword === "table") {
-        const table = {};
-        table.name = e.table[0].table;
-        table.comment = "";
-        table.color = "#175e7a";
-        table.fields = [];
-        table.indices = [];
-        table.id = nanoid();
-        e.create_definitions.forEach((d) => {
-          const field = {};
-          if (d.resource === "column") {
-            field.id = nanoid();
-            field.name = columnName(d.column);
+  const parseCreateTable = (e) => {
+    const table = {
+      id: nanoid(),
+      name: e.table[0].table,
+      comment: "",
+      color: "#175e7a",
+      fields: [],
+      indices: [],
+      uniqueConstraints: [],
+    };
 
-            let type =
-              dbToTypes[diagramDb][d.definition.dataType.toUpperCase()]?.type;
-            type ??= affinity[diagramDb][d.definition.dataType.toUpperCase()];
+    // Table comment from the COMMENT = '...' table option.
+    const commentOption = (e.table_options ?? []).find(
+      (o) => o.keyword === "comment",
+    );
+    if (commentOption) {
+      table.comment = String(commentOption.value ?? "").replace(/^'|'$/g, "");
+    }
 
-            field.type = type;
-
-            field.comment = d.comment ? d.comment.value.value : "";
-            field.unique = d.unique === "unique";
-            field.increment = false;
-            if (d.auto_increment) field.increment = true;
-            field.notNull = d.nullable?.value === "not null";
-            field.primary = false;
-            if (d.primary_key) field.primary = true;
-            field.default = "";
-            if (d.default_val) {
-              let defaultValue = "";
-              if (d.default_val.value.type === "function") {
-                defaultValue = d.default_val.value.name.name[0].value;
-                if (d.default_val.value.args) {
-                  defaultValue +=
-                    "(" +
-                    d.default_val.value.args.value
-                      .map((v) => {
-                        if (
-                          v.type === "single_quote_string" ||
-                          v.type === "double_quote_string"
-                        )
-                          return "'" + v.value + "'";
-                        return v.value;
-                      })
-                      .join(", ") +
-                    ")";
-                }
-              } else if (d.default_val.value.type === "null") {
-                defaultValue = "NULL";
-              } else if (d.default_val.value.type === "cast") {
-                defaultValue = d.default_val.value.expr.value;
-              } else {
-                defaultValue = d.default_val.value.value.toString();
-              }
-              field.default = defaultValue;
-            }
-            if (d.definition["length"]) {
-              if (d.definition.scale) {
-                field.size = d.definition["length"] + "," + d.definition.scale;
-              } else {
-                field.size = d.definition["length"];
-              }
-            }
-            field.check = "";
-            if (d.check) {
-              field.check = buildSQLFromAST(
-                d.check.definition[0],
-                DB.SNOWFLAKE,
-              );
-            }
-
-            table.fields.push(field);
-          } else if (d.resource === "constraint") {
-            if (d.constraint_type.toLowerCase() === "primary key") {
-              d.definition.forEach((c) => {
-                table.fields.forEach((f) => {
-                  if (f.name === columnName(c) && !f.primary) {
-                    f.primary = true;
-                  }
-                });
-              });
-            } else if (d.constraint_type.toLowerCase() === "foreign key") {
-              const relationship = {};
-              const startTableId = table.id;
-              const startTableName = e.table[0].table;
-              const startFieldNames = d.definition.map(columnName);
-              const endTableName = d.reference_definition.table[0].table;
-              const endFieldNames =
-                d.reference_definition.definition.map(columnName);
-              const startFieldName = startFieldNames[0];
-
-              const endTable = findReferencedTable(tables, table, endTableName);
-              if (!endTable) return;
-
-              const fieldPairs = [];
-              for (let i = 0; i < startFieldNames.length; i++) {
-                const sf = table.fields.find(
-                  (f) => f.name === startFieldNames[i],
-                );
-                const ef = endTable.fields.find(
-                  (f) => f.name === endFieldNames[i],
-                );
-                if (!sf || !ef) break;
-                fieldPairs.push({ startFieldId: sf.id, endFieldId: ef.id });
-              }
-              if (fieldPairs.length !== startFieldNames.length) return;
-
-              const startField = table.fields.find(
-                (f) => f.name === startFieldName,
-              );
-
-              relationship.name = `fk_${startTableName}_${startFieldName}_${endTableName}`;
-              relationship.startTableId = startTableId;
-              relationship.endTableId = endTable.id;
-              relationship.fields = fieldPairs;
-              relationship.endFieldId = fieldPairs[0].endFieldId;
-              relationship.startFieldId = fieldPairs[0].startFieldId;
-              relationship.id = nanoid();
-
-              let updateConstraint = Constraint.NONE;
-              let deleteConstraint = Constraint.NONE;
-              if (d.reference_definition.on_action) {
-                d.reference_definition.on_action.forEach((c) => {
-                  if (c.type === "on update") {
-                    updateConstraint = c.value.value;
-                    updateConstraint =
-                      updateConstraint[0].toUpperCase() +
-                      updateConstraint.substring(1);
-                  } else if (c.type === "on delete") {
-                    deleteConstraint = c.value.value;
-                    deleteConstraint =
-                      deleteConstraint[0].toUpperCase() +
-                      deleteConstraint.substring(1);
-                  }
-                });
-              }
-
-              relationship.updateConstraint = updateConstraint;
-              relationship.deleteConstraint = deleteConstraint;
-              if (startField.unique) {
-                relationship.cardinality = Cardinality.ONE_TO_ONE;
-              } else {
-                relationship.cardinality = Cardinality.MANY_TO_ONE;
-              }
-              relationships.push(relationship);
-            }
-          }
-
-          if (d.reference_definition) {
-            const relationship = {};
-            const startTableName = table.name;
-            const startFieldName = field.name;
-            const endTableName = d.reference_definition.table[0].table;
-            const endFieldName =
-              columnName(d.reference_definition.definition[0]);
-            let updateConstraint = Constraint.NONE;
-            let deleteConstraint = Constraint.NONE;
-            if (d.reference_definition.on_action) {
-              d.reference_definition.on_action.forEach((c) => {
-                if (c.type === "on update") {
-                  updateConstraint = c.value.value;
-                  updateConstraint =
-                    updateConstraint[0].toUpperCase() +
-                    updateConstraint.substring(1);
-                } else if (c.type === "on delete") {
-                  deleteConstraint = c.value.value;
-                  deleteConstraint =
-                    deleteConstraint[0].toUpperCase() +
-                    deleteConstraint.substring(1);
-                }
-              });
-            }
-
-            const endTable = findReferencedTable(tables, table, endTableName);
-            if (!endTable) return;
-
-            const endField = endTable.fields.find(
-              (f) => f.name === endFieldName,
-            );
-            if (!endField) return;
-
-            const startField = table.fields.find(
-              (f) => f.name === startFieldName,
-            );
-            if (!startField) return;
-
-            relationship.name = `fk_${startTableName}_${startFieldName}_${endTableName}`;
-            relationship.startTableId = table.id;
-            relationship.startFieldId = startField.id;
-            relationship.endTableId = endTable.id;
-            relationship.endFieldId = endField.id;
-            relationship.fields = [
-              { startFieldId: startField.id, endFieldId: endField.id },
-            ];
-            relationship.updateConstraint = updateConstraint;
-            relationship.deleteConstraint = deleteConstraint;
-            relationship.id = nanoid();
-
-            if (startField.unique) {
-              relationship.cardinality = Cardinality.ONE_TO_ONE;
-            } else {
-              relationship.cardinality = Cardinality.MANY_TO_ONE;
-            }
-
-            relationships.push(relationship);
-          }
-        });
-        tables.push(table);
-      } else if (e.keyword === "index") {
-        const index = {
-          name: e.index,
-          unique: e.index_type === "unique",
-          fields: e.index_columns.map(columnName),
+    (e.create_definitions ?? []).forEach((d) => {
+      if (d.resource === "column") {
+        const field = {
+          id: nanoid(),
+          name: columnName(d.column),
+          type: resolveType(d.definition?.dataType, diagramDb),
+          notNull: d.nullable?.value === "not null",
+          unique: d.unique === "unique",
+          primary: Boolean(d.primary_key),
+          increment: Boolean(d.auto_increment),
+          default: d.default_val ? parseDefaultValue(d.default_val) : "",
+          check: "",
+          comment: d.comment?.value?.value ?? "",
+          size: fieldSize(d.definition),
         };
+        table.fields.push(field);
 
-        const table = tables.find((t) => t.name === e.table.table);
-
-        if (table) {
-          table.indices.push(index);
-          table.indices.forEach((i, j) => {
-            i.id = j;
+        // Column-level inline foreign key.
+        if (d.reference_definition) {
+          pendingReferences.push({
+            startTableId: table.id,
+            startFieldNames: [field.name],
+            endTableName: d.reference_definition.table[0].table,
+            endFieldNames: d.reference_definition.definition.map(columnName),
+            onAction: d.reference_definition.on_action,
+          });
+        }
+      } else if (d.resource === "constraint") {
+        const type = d.constraint_type?.toLowerCase();
+        if (type === "primary key") {
+          d.definition.forEach((c) => {
+            const name = columnName(c);
+            const f = table.fields.find((x) => x.name === name);
+            if (f) f.primary = true;
+          });
+        } else if (type === "foreign key") {
+          pendingReferences.push({
+            startTableId: table.id,
+            startFieldNames: d.definition.map(columnName),
+            endTableName: d.reference_definition.table[0].table,
+            endFieldNames: d.reference_definition.definition.map(columnName),
+            onAction: d.reference_definition.on_action,
+          });
+        } else if (type?.includes("unique")) {
+          const fields = d.definition.map(columnName);
+          const name =
+            d.constraint ||
+            d.index ||
+            `${table.name}_unique_${table.uniqueConstraints.length}`;
+          table.uniqueConstraints.push({ name, fields });
+          table.uniqueConstraints.forEach((u, j) => {
+            u.id = j;
           });
         }
       }
-    } else if (e.type === "alter") {
-      if (Array.isArray(e.expr)) {
-        e.expr.forEach((expr) => {
-          if (
-            expr.action === "add" &&
-            expr.create_definitions.constraint_type.toLowerCase() ===
-              "foreign key"
-          ) {
-            const relationship = {};
-            const startTableName = e.table[0].table;
-            const startFieldNames =
-              expr.create_definitions.definition.map(columnName);
-            const endTableName =
-              expr.create_definitions.reference_definition.table[0].table;
-            const endFieldNames =
-              expr.create_definitions.reference_definition.definition.map(
-                columnName,
-              );
-            const startFieldName = startFieldNames[0];
-            let updateConstraint = Constraint.NONE;
-            let deleteConstraint = Constraint.NONE;
-            if (expr.create_definitions.reference_definition.on_action) {
-              expr.create_definitions.reference_definition.on_action.forEach(
-                (c) => {
-                  if (c.type === "on update") {
-                    updateConstraint = c.value.value;
-                    updateConstraint =
-                      updateConstraint[0].toUpperCase() +
-                      updateConstraint.substring(1);
-                  } else if (c.type === "on delete") {
-                    deleteConstraint = c.value.value;
-                    deleteConstraint =
-                      deleteConstraint[0].toUpperCase() +
-                      deleteConstraint.substring(1);
-                  }
-                },
-              );
-            }
+      // No CHECK handling: Snowflake does not support CHECK constraints and the
+      // snowflake parser cannot produce a check node, so there is nothing to read.
+    });
 
-            const startTable = tables.find((t) => t.name === startTableName);
-            if (!startTable) return;
-
-            const endTable = tables.find((t) => t.name === endTableName);
-            if (!endTable) return;
-
-            const fieldPairs = [];
-            for (let i = 0; i < startFieldNames.length; i++) {
-              const sf = startTable.fields.find(
-                (f) => f.name === startFieldNames[i],
-              );
-              const ef = endTable.fields.find(
-                (f) => f.name === endFieldNames[i],
-              );
-              if (!sf || !ef) break;
-              fieldPairs.push({ startFieldId: sf.id, endFieldId: ef.id });
-            }
-            if (fieldPairs.length !== startFieldNames.length) return;
-
-            const startField = startTable.fields.find(
-              (f) => f.name === startFieldName,
-            );
-
-            relationship.name = `fk_${startTableName}_${startFieldName}_${endTableName}`;
-            relationship.startTableId = startTable.id;
-            relationship.startFieldId = fieldPairs[0].startFieldId;
-            relationship.endTableId = endTable.id;
-            relationship.endFieldId = fieldPairs[0].endFieldId;
-            relationship.fields = fieldPairs;
-            relationship.updateConstraint = updateConstraint;
-            relationship.deleteConstraint = deleteConstraint;
-            relationship.cardinality = Cardinality.ONE_TO_ONE;
-            relationship.id = nanoid();
-
-            if (startField.unique) {
-              relationship.cardinality = Cardinality.ONE_TO_ONE;
-            } else {
-              relationship.cardinality = Cardinality.MANY_TO_ONE;
-            }
-
-            relationships.push(relationship);
-          }
-        });
-      }
-    } else if (e.type === "comment") {
-      if (e.target.type === "table") {
-        const table = tables.find((t) => t.name === e.target?.name?.table);
-        if (table) {
-          table.comment = e.expr.expr.value;
-        }
-      } else if (e.target.type === "column") {
-        const table = tables.find((t) => t.name === e.target?.name?.table);
-        if (table) {
-          const targetColumnName =
-            e.target?.name?.column?.expr?.value ?? e.target?.name?.column;
-          const field = table.fields.find(
-            (f) => f.name === targetColumnName,
-          );
-          if (field) {
-            field.comment = e.expr.expr.value;
-          }
-        }
-      }
-    }
+    tables.push(table);
   };
 
-  if (Array.isArray(ast)) {
-    ast.forEach((e) => parseSingleStatement(e));
-  } else {
-    parseSingleStatement(ast);
+  const parseAlter = (e) => {
+    (e.expr ?? []).forEach((expr) => {
+      if (
+        expr.action === "add" &&
+        expr.create_definitions?.constraint_type?.toLowerCase() ===
+          "foreign key"
+      ) {
+        const def = expr.create_definitions;
+        pendingReferences.push({
+          startTableName: e.table[0].table,
+          startFieldNames: def.definition.map(columnName),
+          endTableName: def.reference_definition.table[0].table,
+          endFieldNames: def.reference_definition.definition.map(columnName),
+          onAction: def.reference_definition.on_action,
+        });
+      }
+    });
+  };
+
+  const parseIndex = (e) => {
+    const table = tables.find((t) => t.name === e.table?.table);
+    if (!table) return;
+    table.indices.push({
+      name: e.index,
+      unique: e.index_type === "unique",
+      fields: (e.index_columns ?? []).map((f) => columnName(f)),
+    });
+    table.indices.forEach((i, j) => {
+      i.id = j;
+    });
+  };
+
+  const parseSingleStatement = (e) => {
+    if (e.type === "create" && e.keyword === "table") parseCreateTable(e);
+    else if (e.type === "create" && e.keyword === "index") parseIndex(e);
+    else if (e.type === "alter") parseAlter(e);
+  };
+
+  if (Array.isArray(ast)) ast.forEach(parseSingleStatement);
+  else parseSingleStatement(ast);
+
+  // Resolve deferred foreign keys once every table exists.
+  for (const ref of pendingReferences) {
+    const startTable = ref.startTableId
+      ? tables.find((t) => t.id === ref.startTableId)
+      : tables.find((t) => t.name === ref.startTableName);
+    if (!startTable) continue;
+
+    const endTable = findReferencedTable(tables, startTable, ref.endTableName);
+    if (!endTable) continue;
+
+    const fieldPairs = resolveFieldPairs(
+      startTable,
+      endTable,
+      ref.startFieldNames,
+      ref.endFieldNames,
+    );
+    if (!fieldPairs) continue;
+
+    relationships.push(
+      makeRelationship(startTable, endTable, fieldPairs, ref.onAction),
+    );
   }
 
-  return { tables, relationships };
+  return { tables, relationships, types: [], enums: [] };
 }
