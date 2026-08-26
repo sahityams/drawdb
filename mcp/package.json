@@ -2,10 +2,15 @@
   "name": "drawdb-mcp",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "bundle": "node scripts/bundle-core.mjs",
+    "prepare": "npm run bundle",
     "pretest": "npm run bundle",
-    "test": "vitest run"
+    "test": "vitest run",
+    "start": "node bin/drawdb-mcp.mjs --stdio"
   },
   "devDependencies": {
     "esbuild": "^0.25.0",
