@@ -5,6 +5,7 @@ import { fromMSSQL } from "./mssql";
 import { fromMySQL } from "./mysql";
 import { fromOracleSQL } from "./oraclesql";
 import { fromPostgres } from "./postgres";
+import { fromSnowflake } from "./snowflake";
 import { fromSQLite } from "./sqlite";
 
 export function importSQL(ast, toDb = DB.MYSQL, diagramDb = DB.GENERIC) {
@@ -27,6 +28,9 @@ export function importSQL(ast, toDb = DB.MYSQL, diagramDb = DB.GENERIC) {
       break;
     case DB.ORACLESQL:
       diagram = fromOracleSQL(ast, diagramDb);
+      break;
+    case DB.SNOWFLAKE:
+      diagram = fromSnowflake(ast, diagramDb);
       break;
     default:
       diagram = { tables: [], relationships: [] };

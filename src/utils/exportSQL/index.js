@@ -4,6 +4,7 @@ import { toMSSQL } from "./mssql";
 import { toMySQL } from "./mysql";
 import { toOracleSQL } from "./oraclesql";
 import { toPostgres } from "./postgres";
+import { toSnowflake } from "./snowflake";
 import { toSqlite } from "./sqlite";
 
 export function exportSQL(diagram) {
@@ -20,6 +21,8 @@ export function exportSQL(diagram) {
       return toMSSQL(diagram);
     case DB.ORACLESQL:
       return toOracleSQL(diagram);
+    case DB.SNOWFLAKE:
+      return toSnowflake(diagram);
     default:
       return "";
   }

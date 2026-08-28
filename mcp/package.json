@@ -1,0 +1,28 @@
+{
+  "name": "drawdb-mcp",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "bundle": "node scripts/bundle-core.mjs",
+    "prepare": "npm run bundle",
+    "pretest": "npm run bundle",
+    "test": "vitest run",
+    "start": "node bin/drawdb-mcp.mjs --stdio"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "vitest": "4.1.11"
+  },
+  "dependencies": {
+    "@dbml/core": "^3.13.9",
+    "@modelcontextprotocol/node": "^2.0.0",
+    "@modelcontextprotocol/server": "^2.0.0",
+    "nanoid": "^5.1.16",
+    "node-sql-parser": "^5.4.0",
+    "snowflake-sdk": "^2.2.0",
+    "zod": "^4.4.3"
+  }
+}
